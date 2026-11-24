@@ -97,7 +97,7 @@ function defaults(){return{v:1,pin:'',lastBackup:'',
  templates:JSON.parse(JSON.stringify(DEF_TPL)),
  audit:[]};}
 
-let DB,UI={nt:{},tab:'today',date:today(),q:'',sq:'',open:new Set(),edit:null,hist:null,edits:{},rep:{type:'daily',from:'',to:''},unlocked:false,storageOK:true};
+let DB,UI={nt:{},tab:'daily',date:today(),q:'',sq:'',open:new Set(),edit:null,hist:null,edits:{},rep:{type:'daily',from:'',to:''},unlocked:false,storageOK:true};
 
 function load(){
  try{localStorage.setItem('_t','1');localStorage.removeItem('_t')}catch(e){UI.storageOK=false}
@@ -126,10 +126,10 @@ function addDays(d,n){const x=new Date(d+'T00:00:00');x.setDate(x.getDate()+n);r
 function render(){
  migrate();
  if(DB.pin&&!UI.unlocked){$('#app').innerHTML=vLock();return}
- const tabs=[['today','📋','اليوم'],['students','👥','الطلاب'],['points','⭐','النقاط'],['msgs','✉️','الرسائل'],['reports','📊','التقارير'],['backup','💾','الإعدادات']];
- const v={today:vToday,students:vStudents,points:vPoints,msgs:vMsgs,reports:vReports,backup:vBackup}[UI.tab]();
+ const tabs=[['daily','✅','التسجيل'],['today','📋','التفاصيل'],['students','👥','الطلاب'],['points','⭐','النقاط'],['msgs','✉️','الرسائل'],['reports','📊','التقارير'],['backup','💾','الإعدادات']];
+ const v={daily:vDaily,today:vToday,students:vStudents,points:vPoints,msgs:vMsgs,reports:vReports,backup:vBackup}[UI.tab]();
  $('#app').innerHTML='<header>'+esc(DB.settings.center)+'</header><main>'+warn()+v+'</main><nav>'+tabs.map(t=>'<button class="'+(UI.tab===t[0]?'on':'')+'" onclick="go(\''+t[0]+'\')"><span>'+t[1]+'</span>'+t[2]+'</button>').join('')+'</nav>';
- if(UI.tab==='today')renderList();
+ if(UI.tab==='today'||UI.tab==='daily')renderList();
  if(UI.tab==='students'&&!UI.edit&&!UI.hist)stuList();
 }
 function go(t){UI.tab=t;UI.edit=null;UI.hist=null;render();window.scrollTo(0,0)}
@@ -148,7 +148,7 @@ function vToday(){
  '<div id="sum"></div>'+
  '<div class="bar"><input placeholder="بحث بالاسم" value="'+esc(UI.q)+'" oninput="UI.q=this.value;renderList()"><button onclick="allPresent()">الكل حاضر</button></div><div id="list"></div>';
 }
-function renderList(){
+function renderList(){if(UI.tab==='daily'){renderDaily();return}
  const recs=DB.records[UI.date]||{};const q=UI.q.trim();
  const act=sortS(DB.students.filter(s=>s.active));
  const list=act.filter(s=>!q||s.name.includes(q));
@@ -457,6 +457,42 @@ function importNames(){const L=$('#imp').value.split('\n').map(x=>x.trim()).filt
  L.forEach(l=>{const p=l.split(/[،,]/),name=(p[0]||'').trim();if(!name||DB.students.find(s=>nk(s.name)===nk(name)))return;n++;add++;
   DB.students.push({id:uid(),name,first:name,father:'',grand:'',last:'',parent:'',legacy:false,num:n,surah:(p[1]||'').trim(),type:'مستمر',active:true,phone:'',phone2:'',wa:true,channel:'واتساب',regDate:'',note:''})});
  save();render();toast('تمت إضافة '+add+' طالبًا')}
+/* ----- التسجيل اليومي السريع ----- */
+function vDaily(){
+ const k=UI.dsub||'att';
+ const b=(x,t)=>`<button class="${k===x?'pri':''}" style="flex:1" onclick="UI.dsub='${x}';render()">${t}</button>`;
+ return `<div class="bar"><input type="date" value="${UI.date}" onchange="UI.date=this.value||today();render()"><button onclick="UI.date=today();render()">اليوم</button></div><div class="bar">${b('att','الحضور')}${b('thumn','تسميع الثمن')}${b('rev','المراجعة')}</div><div id="dlist"></div>`;
+}
+function attTap(sid){upd(sid,r=>{const was=r.status;
+ if(isP(was)){
+  if((thCnt(r)||Object.keys(r.acts||{}).length)&&!confirm('لهذا الطالب أثمان أو مراجعة مسجّلة وسيتم مسحها. متابعة؟'))return;
+  logChange(sid,was,'غائب');r.status='غائب';r.absAsk=true;r.time='';r.thumn=0;r.thN=[];r.acts={}}
+ else{if(was)logChange(sid,was,'حاضر');r.status='حاضر';r.absAsk=false;stamp(r)}})}
+function renderDaily(){
+ const k=UI.dsub||'att',recs=DB.records[UI.date]||{};
+ const act=sortS(DB.students.filter(s=>s.active)),R=s=>recs[s.id]||{};
+ const pres=act.filter(s=>isP(R(s).status));
+ let h='';
+ if(k==='att'){
+  const a=act.filter(s=>R(s).status&&!isP(R(s).status)).length;
+  h+=`<div class="bar"><button class="pri" style="flex:1" onclick="allPresent()">☑ تحديد الكل (الكل حاضر)</button></div><div class="sum"><span>حاضر: <b>${pres.length}</b></span><span>غائب: <b>${a}</b></span><span>غير مسجّل: <b>${act.length-pres.length-a}</b></span></div><p class="muted small">اضغط على الطالب لتبديله: حاضر ✔ ← غائب ✗. (نوع الغياب بإذن/بدون يُحدَّد لاحقًا من «التفاصيل»).</p>`;
+  act.forEach(s=>{const r=R(s),st=r.status,P=isP(st);
+   h+=`<div class="card ${st?SCLASS[st]:''}"><div class="row" style="margin:0"><button class="chip ${P?'on s-p':st?'on s-a':''}" style="width:46px;height:46px;font-size:22px;padding:0" onclick="attTap('${s.id}')">${P?'✔':st?'✗':''}</button><b style="flex:1" onclick="attTap('${s.id}')">${esc(nm(s))}</b>${P?`<button class="chip ${st==='متأخر'?'on s-l':''}" onclick="togLate('${s.id}')">⏰ متأخر</button>`:''}${st&&!P?`<span class="muted small">${esc(st)}</span>`:''}</div></div>`});
+ }else if(k==='thumn'){
+  h+=pres.length?'<p class="muted small">للحاضرين فقط. اضغط ＋ لكل ثمن مكتمل.</p>':'<div class="warn">سجّل الحضور أولًا من تبويب «الحضور».</div>';
+  pres.forEach(s=>{const n=thCnt(R(s));
+   h+=`<div class="card ${n?'s-p':''}"><div class="row" style="margin:0"><b style="flex:1">${esc(nm(s))}${s.surah?` <span class="muted small">· ${esc(s.surah)}</span>`:''}</b><button style="width:46px;height:46px;font-size:22px;padding:0" onclick="togThumn('${s.id}',-1)">－</button><b style="min-width:26px;text-align:center;font-size:20px">${n}</b><button class="pri" style="width:46px;height:46px;font-size:22px;padding:0" onclick="togThumn('${s.id}',1)">＋</button></div></div>`});
+ }else{
+  const ra=DB.acts.find(a=>a.key==='review'&&!a.del);
+  if(!ra)h+='<div class="warn">لا يوجد نشاط «مراجعة» في الإعدادات ← إعدادات الأنشطة.</div>';
+  else{
+   h+=pres.length?'<p class="muted small">للحاضرين فقط. اضغط على الطالب الذي راجع.</p>':'<div class="warn">سجّل الحضور أولًا من تبويب «الحضور».</div>';
+   pres.forEach(s=>{const on=(R(s).acts||{})[ra.id];
+    h+=`<div class="card ${on?'s-p':''}"><div class="row" style="margin:0"><button class="chip ${on?'on v':''}" style="width:46px;height:46px;font-size:22px;padding:0" onclick="togAct('${s.id}','${ra.id}')">${on?'✔':''}</button><b style="flex:1" onclick="togAct('${s.id}','${ra.id}')">${esc(nm(s))}</b><span class="muted small">${on?'راجع':''}</span></div></div>`});
+  }
+ }
+ $('#dlist').innerHTML=h||'<p class="muted">لا يوجد طلاب.</p>';
+}
 /* ----- اليوم ----- */
 function card(s,r){
  r=r||{};const st=r.status,P=isP(st),A=!!st&&!P,id=s.id,n=thCnt(r);
